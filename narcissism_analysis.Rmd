@@ -1,18 +1,52 @@
 ---
-title: "R Notebook"
+title: "R Notebook Narcissism"
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+```{r setup, message=FALSE, warning=FALSE}
+library(ggplot2)
+library(dplyr)
+library(psych)
 
-```{r}
-plot(cars)
 ```
-
 Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
 
 When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
 
 The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+```{r}
+  df <- read.csv("data.csv", stringsAsFactors = FALSE)
+  #df
+```
+## Inspection of the data and checking for missing values
+```{r  setup, message=FALSE, warning=FALSE}
+str(df)       # Data structure
+summary(df)   # Summary of each column
+head(df)      # First few rows
+colSums(is.na(df))  # Count missing values in each column
+```
+We have concluded there are no missing values in the data
+
+## Detecting outliers
+```{r}
+
+```
+
+## Visualizing Key Trends
+```{r}
+df_gender_1 <-df[df$gender == 1, ] 
+nrow(df_gender_1)
+nrow(df_gender_2)
+df_gender_2 <-df[df$gender == 2, ] 
+df_min_narcissistic <- df[df[, 1] == 0, ]  
+nrow(df_min_narcissistic)
+df_min_narcissistic_1 <- df_min_narcissistic[df_min_narcissistic$gender == 1, ] 
+nrow(df_min_narcissistic_1)  
+
+```
+The number of gender 1 (Assuming men) who took the test is: 6425
+The number of gender 2 (Assuming women) who took the test is: 4766
+The number of people who scored 0 on the NPI-40 is 84.
+The number of men is (Assuming men is 1): 47
+The number of women is(Assuming women is 2): 37
