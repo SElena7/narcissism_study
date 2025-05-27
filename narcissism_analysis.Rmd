@@ -1,26 +1,30 @@
 ---
 title: "R Notebook Narcissism"
 output: html_notebook
+author: "Elena Spirova"
 ---
 
+```{r}
+rmarkdown::render("~/Documents/workspace/1va god master/seminar data science narcissism/narcissism_analysis.Rmd")
+```
 
-```{r setup, message=FALSE, warning=FALSE}
+
+
+```{r, message=FALSE, warning=FALSE}
 library(ggplot2)
 library(dplyr)
 library(psych)
+library(corrplot)
 
 ```
-Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
 
-When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
 
-The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
 ```{r}
   df <- read.csv("data.csv", stringsAsFactors = FALSE)
-  #df
+  nrow(df)
 ```
 ## Inspection of the data and checking for missing values
-```{r  setup, message=FALSE, warning=FALSE}
+```{r message=FALSE, warning=FALSE, include=FALSE}
 str(df)       # Data structure
 summary(df)   # Summary of each column
 head(df)      # First few rows
@@ -28,19 +32,31 @@ colSums(is.na(df))  # Count missing values in each column
 ```
 We have concluded there are no missing values in the data
 
-## Detecting outliers
-```{r}
 
+## Taking care of missing values
+From the Kaagle dataset everything seems fine except the gender column since
+they other than 1=male and 2=female, we have 0=did not input a value and
+3=other. Since in our research we are interested in knowing the differences in 
+narcissistic traits between men and women we will omit the rows with the other
+two options.
+```{r}
+df <- df[df$gender %in% c(1, 2), ]
+nrow(df)
 ```
+Result 11243 - 11191 = 52 rows were omitted.
+
 
 ## Visualizing Key Trends
 ```{r}
 df_gender_1 <-df[df$gender == 1, ] 
 nrow(df_gender_1)
-nrow(df_gender_2)
+
 df_gender_2 <-df[df$gender == 2, ] 
+nrow(df_gender_2)
+
 df_min_narcissistic <- df[df[, 1] == 0, ]  
 nrow(df_min_narcissistic)
+
 df_min_narcissistic_1 <- df_min_narcissistic[df_min_narcissistic$gender == 1, ] 
 nrow(df_min_narcissistic_1)  
 
@@ -48,5 +64,110 @@ nrow(df_min_narcissistic_1)
 The number of gender 1 (Assuming men) who took the test is: 6425
 The number of gender 2 (Assuming women) who took the test is: 4766
 The number of people who scored 0 on the NPI-40 is 84.
-The number of men is (Assuming men is 1): 47
-The number of women is(Assuming women is 2): 37
+The number of men who scored 0 is: 47
+The number of women who scored 0 is: 37
+
+
+## Subscales
+📌 Leadership/Authority
+Items:
+1, 5, 10, 11, 12, 27, 32, 33, 34, 36, 40
+
+📌 Grandiose Exhibitionism
+Items:
+4, 7, 15, 19, 20, 26, 28, 30, 38, 39
+
+📌 Entitlement/Exploitativeness
+Items:
+3, 14, 17, 24
+
+
+```{r}
+df$authority_score <- rowSums(df[, c("Q1", "Q5", "Q10", "Q11", "Q27", "Q32",
+                                     "Q33", "Q34", "Q36", "Q40")])
+df$exibitionism_score <- rowSums(df[, c("Q4", "Q7", "Q15", "Q19", "Q20", "Q26",
+                                       "Q28", "Q30", "Q38", "Q39")])
+df$entitlement_score <- rowSums(df[, c("Q3", "Q14", "Q17", "Q24")])
+```
+
+
+
+```{r}
+# Summarize mean scores
+df_summary <- df %>%
+  group_by(gender) %>%
+  summarise(
+    authority = mean(authority_score),
+    entitlement = mean(entitlement_score),
+    exibitionism = mean(exibitionism_score)
+  )
+
+print(df_summary)
+
+# Visualize gender differences
+ggplot(df_summary, aes(x = factor(gender), y = authority)) +
+  geom_col(fill = "skyblue") +
+  labs(title = "Authority by Gender", x = "Gender", y = "Mean Score")
+
+# Visualize gender differences
+ggplot(df_summary, aes(x = factor(gender), y = entitlement)) +
+  geom_col(fill = "green") +
+  labs(title = "Entitlement by Gender", x = "Gender", y = "Mean Score")
+
+# Visualize gender differences
+ggplot(df_summary, aes(x = factor(gender), y = exibitionism)) +
+  geom_col(fill = "red") +
+  labs(title = "Exibitionism by Gender", x = "Gender", y = "Mean Score")
+
+```
+
+## Finding correlations 
+
+### 🔄 1. Correlation Matrix Between Subscales
+```{r}
+# Select only subscale scores
+subscale_data <- df[, c("authority_score", 
+                        "exibitionism_score", 
+                        "entitlement_score")]
+
+# Compute correlation matrix
+cor_matrix <- cor(subscale_data)
+
+# Visualize
+corrplot(cor_matrix, method = "circle",
+         type = "upper", 
+         tl.col = "black", tl.srt = 45)
+
+```
+### 🔍 2. Correlation Matrix by Gender
+
+```{r}
+cor_male <- cor(df[df$gender == 1, c("authority_score", 
+                                     "exibitionism_score",
+                                     "entitlement_score")])
+cor_female <- cor(df[df$gender == 2, c("authority_score",
+                                       "exibitionism_score",
+                                       "entitlement_score")])
+
+# Plot both
+corrplot(cor_male, method = "number", title = "Males", mar = c(0,0,1,0))
+corrplot(cor_female, method = "number", title = "Females", mar = c(0,0,1,0))
+
+```
+```{r}
+library(tidyr)
+
+df_long <- df %>%
+  pivot_longer(cols = c(authority_score, entitlement_score, exibitionism_score),
+               names_to = "subscale",
+               values_to = "sc")
+df_long
+ggplot(df_long, aes(x = factor(gender), y = sc, fill = factor(gender))) +
+  geom_boxplot() +
+  facet_wrap(~ subscale, scales = "free_y") +
+  labs(title = "Distribution of Subscale Scores by Gender", 
+       x = "Gender",
+       y = "Score") +
+  scale_fill_manual(values = c("skyblue", "pink"), labels = c("Male", "Female"))
+
+```
