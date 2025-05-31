@@ -1,0 +1,157 @@
+---
+title: "BasicModeling"
+format: html
+---
+
+```{r}
+#| label: setup
+library(tidyverse)
+library(brms) #fits bayesian models
+library(ordbetareg) # fits ordered beta regression, requires brms
+library(bayesplot) # bayes helper
+library(tidybayes) # bayes helper
+library(bayestestR) # bayes helper
+library(marginaleffects) # as the name suggested it is for marginal effects
+```
+# Data
+
+```{r}
+# read the data
+data <- read_csv("data/data.csv")
+#filter for gender and age
+d <- data |> filter(gender %in% c(1,2), age >= 18, age <= 100)
+#scoring - from your code
+d$authority_score <- rowSums(d[, c("Q1", "Q5", "Q10", "Q11", "Q27", "Q32",
+                                     "Q33", "Q34", "Q36", "Q40")])
+d$exibitionism_score <- rowSums(d[, c("Q4", "Q7", "Q15", "Q19", "Q20", "Q26",
+                                       "Q28", "Q30", "Q38", "Q39")])
+d$entitlement_score <- rowSums(d[, c("Q3", "Q14", "Q17", "Q24")])
+
+#convert predictors to factors
+d <- d |> mutate(
+  # would be nice to rename these to something more practice (18-39, etc)
+  # also consider if 4 breaks is sufficient.
+  age.bin = factor(cut(age, breaks=4), ordered=TRUE), 
+  # probably good to reame these as F & M so its easier to understand the results
+  gender = as.factor(gender)
+)
+# this is a version of the data without degenerate values (0 and 20 in this case) - the limits
+# that can be used in a standard beta regression (bayesian or otherwise)
+d.beta <- d |> filter(authority_score > 0 & authority_score < 20) |> 
+  mutate(auth.beta = authority_score/20)
+
+```
+
+# Inspect
+
+```{r}
+#visualise the distribution
+ggplot(data = d, aes(x=authority_score/20)) + theme_classic() +
+  geom_density()
+
+# a slightly smoother looking version as a histogram
+ggplot(data = d, aes(x=authority_score/20)) + theme_classic() +
+  geom_histogram(bins=10)
+```
+
+
+```{r}
+
+#fit the ordered beta regression
+auth <- ordbetareg(y ~ x1 + x2, #formula
+                   data = d, #data
+                   #sampling setup
+                   iter = 1000, #how many iterations for each chain = update to 4000 for final model
+                   cores = 4, #if you have multiple cores, use 1 per chain
+                   chains = 4, #4 is enough
+                   warmup = 250, #warmup is usually about 1/4 the number of iterations, update to 1000
+                   seed = 142, #a seed for consistency
+                   save_pars = save_pars(all = TRUE) #retains necessary information for diagnostics
+                   )
+summary(auth) #fairly typical regression output
+pd(auth) # probability of direction for each main effect
+pp_check_ordbeta(auth) # visualisation
+auth.loo <- loo(auth) # diagnostics via leave-one-out cross validation
+auth.loo #when we check this, we are mostly looking at the pareto-k estimates to make sure they are ok (<0.7)
+```
+
+```{r}
+#with the ordbetareg ... the model might be too big to handle.  details about what is going on here are in a similar chunk below.
+auth.comp <- avg_slopes(auth, type="response")
+auth.draws <- get_draws(auth.comp, shape="long")
+auth.hdi <- auth.draws |> 
+  select(contrast, draw) |> 
+  group_by(contrast) |> 
+  summarise(
+    estimate = round(mean(draw)*10,2),
+    hdi = list(round(hdi(draw)*10,2)),
+    p_direction = p_direction(draw),
+  ) |> 
+  separate(hdi, sep=",", into=c("hdi.low", "hdi.high")) |> 
+  mutate(hdi.low = as.numeric(str_sub(hdi.low, 3,-1)),
+         hdi.high = as.numeric(str_sub(hdi.high, 1,-2)))
+auth.hdi |> arrange(desc(abs(estimate)))
+```
+
+# Standard beta regression
+
+This is a fairly standard setup:
+
+Set priors (based on your prior knowledge, if previous work has identified some difference, we can use that to set our priors). By default I use uninformative priors so the data does most of the work
+
+Fit the model - try with and without age and see which fits better.
+```{r}
+#for a standard bayesian regression using brms package, you need to 
+#set your own priors if the defaults don't suit you
+#generally I don't think they do.
+get_prior(formula = auth.beta ~ gender + age.bin,
+              data = d.beta)
+auth.priors = c(
+  prior(normal(0,5), class="b", coef="gender2"),
+  prior(normal(0,5), class="b", coef="age.bin.C"),
+  prior(normal(0,5), class="b", coef="age.bin.L"),
+  prior(normal(0,5), class="b", coef="age.bin.Q")
+)
+
+
+auth <- brm(y ~ x1 + x2, #formula
+            data = d.beta, #data
+            family = Beta(),
+            prior = auth.priors,
+            iter = 4000, #how many iterations for each chain
+            cores = 4, #if you have multiple cores, use 1 per chain
+            chains = 4, #4 is enough
+            warmup = 1000, #warmup is usually about 1/4 the number of iterations, update to 1000
+            seed = 142, #a seed for consistency
+            save_pars = save_pars(all = TRUE) #retains necessary information for diagnostics
+)
+summary(auth) #fairly typical regression output
+pd(auth) # probability of direction for each main effect
+pp_check(auth, type="dens_overlay", ndraws=50) # visualisation how well your the model fits your data
+# could be some debate if the above really fits well. it *probably* does. those peaks would be much lower
+# if non-integer values were allowed.
+auth.loo <- loo(auth) # diagnostics via leave-one-out cross validation
+#if you have multiple .loo objects you can compare them with loo_compare(obj1, obj2, ...)
+auth.loo #when we check this, we are mostly looking at the pareto-k estimates to make sure they are ok (<0.7)
+```
+
+```{r}
+#compare between levels of the factor variables
+auth.comp <- avg_comparisons(auth, type="response", ndraws=1000)
+#pull some data from these comparisons so we can calculate more robust credible intervals
+auth.draws <- get_draws(auth.comp, shape="long")
+#clean up the output and calculate hdp intervals (with hdi())
+auth.hdi <- auth.draws |> 
+  select(contrast, draw) |> 
+  group_by(contrast) |> 
+  summarise(
+    estimate = round(mean(draw)*20,2),
+    hdi.low = (round(hdi(draw)$CI_low*20,2)),
+    hdi.high = (round(hdi(draw)$CI_high*20,2)),
+    p_direction = p_direction(draw)$pd,
+  )
+auth.hdi |> arrange(desc(abs(estimate)))
+# you have a lot of data, so even very small differences can be detected,
+# its worth considering if the effects are meaningful
+```
+
